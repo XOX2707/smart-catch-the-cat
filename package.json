@@ -1,0 +1,11 @@
+{
+  "name": "smart-catch-the-cat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A smarter cat AI for ganlvtech/phaser-catch-the-cat",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "bench": "node bench/bench.js"
+  }
+}

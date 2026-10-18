@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>聪明的神经猫</title>
+    <style>
+        * {
+            padding: 0;
+            margin: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #eeeeee;
+            font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: #222222;
+        }
+
+        #catch-the-cat {
+            width: 100%;
+            margin-top: 24px;
+            text-align: center;
+        }
+
+        /* Shrink the fixed-size canvas on narrow screens */
+        #catch-the-cat canvas {
+            max-width: calc(100% - 32px);
+            height: auto !important;
+        }
+
+        .panel {
+            max-width: 480px;
+            margin: 16px auto;
+            padding: 0 16px;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .switch button {
+            font: inherit;
+            padding: 6px 16px;
+            margin: 0 4px;
+            border: 1px solid #003366;
+            border-radius: 4px;
+            background: #ffffff;
+            color: #003366;
+            cursor: pointer;
+        }
+
+        .switch button.active {
+            background: #003366;
+            color: #ffffff;
+        }
+
+        .hint {
+            margin-top: 8px;
+            font-size: 14px;
+            color: #555555;
+        }
+
+        a {
+            color: #003366;
+        }
+    </style>
+</head>
+<body>
+    <script src="vendor/phaser.min.js"></script>
+    <script src="vendor/catch-the-cat.js"></script>
+    <script src="src/cat-ai.js"></script>
+    <div id="catch-the-cat"></div>
+    <div class="panel">
+        <div class="switch">
+            <button type="button" data-cat="smart">聪明猫</button>
+            <button type="button" data-cat="classic">原版猫</button>
+        </div>
+        <p class="hint" id="hint"></p>
+        <p class="hint">
+            <label><input type="checkbox" id="show-plan"> 偷看猫的打算</label>
+            <span id="plan"></span>
+        </p>
+        <p class="hint">
+            游戏本体来自 <a href="https://github.com/ganlvtech/phaser-catch-the-cat">ganlvtech/phaser-catch-the-cat</a>，
+            这里只换了猫的 AI
+        </p>
+    </div>
+    <script>
+        var cats = {
+            smart: {
+                solver: CatAI.smartSolver,
+                hint: "聪明猫会预判你下一步堵哪里，只走堵不住的路，被关起来也不认输"
+            },
+            classic: {
+                solver: CatAI.classicSolver,
+                hint: "原版猫只会沿最短路线往边上跑，没路了就认输"
+            }
+        };
+
+        window.game = new CatchTheCatGame({
+            w: 11,
+            h: 11,
+            r: 20,
+            initialWallCount: 8,
+            backgroundColor: 0xffffff,
+            parent: "catch-the-cat",
+            statusBarAlign: "center",
+            credit: "github.com/ganlvtech"
+        });
+
+        function useCat(name) {
+            // The solver setter also writes to the cat sprite, which does not
+            // exist until the scene is created; the scene reads game.solver then.
+            try {
+                window.game.solver = cats[name].solver;
+            } catch (e) {
+            }
+            document.getElementById("hint").textContent = cats[name].hint;
+            document.querySelectorAll(".switch button").forEach(function (b) {
+                b.classList.toggle("active", b.getAttribute("data-cat") === name);
+            });
+        }
+
+        document.querySelectorAll(".switch button").forEach(function (b) {
+            b.addEventListener("click", function () {
+                var name = b.getAttribute("data-cat");
+                useCat(name);
+                var url = new URL(location.href);
+                url.searchParams.set("cat", name);
+                history.replaceState(null, "", url);
+            });
+        });
+
+        var initial = new URLSearchParams(location.search).get("cat");
+        useCat(cats[initial] ? initial : "smart");
+
+        // "Peek" asks the current cat where it would step on the board as it
+        // is now; the wall you place next can change its mind. The facing of
+        // the cat at the start of a game is only a fixed default pose
+        // (bottom-left) and says nothing about this.
+        var directionNames = ["左", "左上", "右上", "右", "右下", "左下"];
+        var lastKey = "";
+
+        function updatePlan() {
+            var planEl = document.getElementById("plan");
+            var scene = window.game.scene.scenes[0];
+            if (!document.getElementById("show-plan").checked || !scene || !scene.cat || !scene.blocksData) {
+                planEl.textContent = "";
+                lastKey = "";
+                return;
+            }
+            var cat = scene.cat;
+            var key = scene.state + "|" + cat.i + "," + cat.j + "|" + cat.solver.name + "|" +
+                scene.blocksData.map(function (col) {
+                    return col.map(function (x) { return x ? 1 : 0; }).join("");
+                }).join("");
+            if (key === lastKey) {
+                return;
+            }
+            lastKey = key;
+            if (scene.state !== "playing") {
+                planEl.textContent = "";
+                return;
+            }
+            var dir = cat.solver(scene.blocksData, cat.i, cat.j);
+            planEl.textContent = dir >= 0 && dir <= 5
+                ? "：按现在的棋盘它想往「" + directionNames[dir] + "」走，你放的墙可能让它改主意"
+                : "：它已经没路了";
+        }
+
+        document.getElementById("show-plan").addEventListener("change", updatePlan);
+        setInterval(updatePlan, 300);
+    </script>
+</body>
+</html>
