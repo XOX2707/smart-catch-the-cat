@@ -20,7 +20,14 @@ python -m http.server 8137
 
 然后打开 http://localhost:8137/
 
-## 棋盘大小和新玩法
+## 猫的样子：格格
+
+默认的猫是自己画的像素灰猫「格格」（`src/skins/gege.js`），页面上可以切回原作者画的黑猫。
+
+- 侧面、背面（往上走）、正面（往下走）三个方向，每个方向站立 1 帧 + 走路 4 帧，另外每个方向一张炸毛图；往右的三个方向用左边的镜像。
+- 每张图都是一组字符串，一个字符一个像素，改图就是改字母。`design/gege.html` 是预览页，能放大看每一帧、看原地走路动画，还有一个按游戏方式在棋盘上走一圈的演示。
+- 游戏里用画布按像素画出贴图，替换原作的 15 张猫图和走路动画（`src/variants.js` 里的 `applySkin`）。和原作一样，走路的第 2 到 5 帧会把猫往下一个圆点挪四分之一格，所以走完一步正好接上下一格的站立图。
+
 
 主页上可以换棋盘大小，也可以随意组合三条新规则，改任何一项都会开一局新的。设置会写进网址（例如 `?cat=smart&size=13&rules=double,nap,edge`），可以直接把网址发给别人。
 
@@ -167,4 +174,4 @@ npm test
 
 ## 许可
 
-MIT。`vendor/` 里是第三方代码，各自是 MIT 许可：`catch-the-cat.js` 版权属于 Ganlv（见 `vendor/LICENSE-phaser-catch-the-cat`），`phaser.min.js` 是 Phaser 3.16.1（Photon Storm Ltd.）。游戏玩法和小猫图片最早来自 [Chat Noir](https://www.gamedesign.jp/flash/chatnoir/chatnoir.html)。
+MIT。`vendor/` 里是第三方代码，各自是 MIT 许可：`catch-the-cat.js` 版权属于 Ganlv（见 `vendor/LICENSE-phaser-catch-the-cat`），`phaser.min.js` 是 Phaser 3.16.1（Photon Storm Ltd.）。游戏玩法和原作黑猫的图片最早来自 [Chat Noir](https://www.gamedesign.jp/flash/chatnoir/chatnoir.html)；默认的像素猫「格格」是本项目自己画的，和本项目一起按 MIT 许可。

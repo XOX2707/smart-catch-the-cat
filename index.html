@@ -84,6 +84,7 @@
     <script src="vendor/phaser.min.js"></script>
     <script src="vendor/catch-the-cat.js"></script>
     <script src="src/cat-ai.js"></script>
+    <script src="src/skins/gege.js"></script>
     <script src="src/variants.js"></script>
     <div id="catch-the-cat"></div>
     <div class="panel">
@@ -93,6 +94,12 @@
         </div>
         <p class="hint" id="hint"></p>
         <div class="options">
+            <label>猫的样子
+                <select id="skin" autocomplete="off">
+                    <option value="gege" selected>格格（像素灰猫）</option>
+                    <option value="original">原作者画的黑猫</option>
+                </select>
+            </label>
             <label>棋盘
                 <select id="size" autocomplete="off">
                     <option value="9">9×9（猫离边 4 步）</option>
@@ -133,7 +140,8 @@
             nap: {key: "napEvery", value: 3, text: "猫每走两步就打一次盹，那回合不动"},
             edge: {key: "edgeStay", value: true, text: "猫走到边上要停一回合才能逃，这时把它身边堵满就算抓到"}
         };
-        var settings = {cat: "smart", size: 11, rules: []};
+        var skins = {gege: CatSkins.gege, original: null};
+        var settings = {cat: "smart", size: 11, rules: [], skin: "gege"};
 
         // Any change of cat, board size or rules starts a new game.
         function startGame() {
@@ -145,6 +153,7 @@
                 parent: "catch-the-cat",
                 size: settings.size,
                 rules: rules,
+                skin: skins[settings.skin],
                 solver: cats[settings.cat].solver
             });
 
@@ -153,6 +162,7 @@
                 b.classList.toggle("active", b.getAttribute("data-cat") === settings.cat);
             });
             document.getElementById("size").value = String(settings.size);
+            document.getElementById("skin").value = settings.skin;
             document.querySelectorAll("[data-rule]").forEach(function (box) {
                 box.checked = settings.rules.indexOf(box.getAttribute("data-rule")) >= 0;
             });
@@ -163,6 +173,7 @@
             var url = new URL(location.href);
             url.searchParams.set("cat", settings.cat);
             url.searchParams.set("size", settings.size);
+            url.searchParams.set("skin", settings.skin);
             if (settings.rules.length) {
                 url.searchParams.set("rules", settings.rules.join(","));
             } else {
@@ -177,6 +188,10 @@
                 settings.cat = b.getAttribute("data-cat");
                 startGame();
             });
+        });
+        document.getElementById("skin").addEventListener("change", function (e) {
+            settings.skin = e.target.value;
+            startGame();
         });
         document.getElementById("size").addEventListener("change", function (e) {
             settings.size = Number(e.target.value);
@@ -195,6 +210,9 @@
         var params = new URLSearchParams(location.search);
         if (cats[params.get("cat")]) {
             settings.cat = params.get("cat");
+        }
+        if (params.get("skin") in skins) {
+            settings.skin = params.get("skin");
         }
         if (["9", "11", "13", "15"].indexOf(params.get("size")) >= 0) {
             settings.size = Number(params.get("size"));

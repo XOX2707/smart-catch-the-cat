@@ -35,6 +35,9 @@
         proto.create = function () {
             originalCreate.call(this);
             patchCat(Object.getPrototypeOf(this.cat));
+            if (this.game.skin) {
+                applySkin(this, this.game.skin);
+            }
         };
 
         // Same checks and messages as upstream, plus the variant rules.
@@ -70,6 +73,7 @@
             });
             block.isWall = true;
             if (this.cat.isCaught()) {
+                this.cat.caught();
                 this.state = WIN;
                 return false;
             }
@@ -94,6 +98,7 @@
             }
             this.setStatusText("您点击了 (" + i + ", " + j + ")");
             if (!this.cat.step()) {
+                this.cat.caught();
                 this.state = WIN;
                 this.setStatusText("猫认输，你赢了！");
             }
@@ -121,9 +126,112 @@
         };
     }
 
+    // ---------- pixel-art skins ----------
+
+    // Values from the upstream sprite data (data.ts): which point of each
+    // texture sits on the cat's dot, and the animations built on them.
+    var ORIGINS = {
+        left: {x: 0.75, y: 0.75},
+        top_left: {x: 0.63, y: 0.83},
+        bottom_left: {x: 0.65, y: 0.5},
+    };
+    var FRAME_RATE = 15;
+
+    /**
+     * Replaces the cat's 15 textures (3 directions x 5 frames) with a pixel
+     * skin (see src/skins/gege.js), plus one "caught" texture per direction.
+     * Like the originals, frames 2..5 move the cat a quarter step each
+     * towards the next dot, so the walk ends exactly where the next stop
+     * frame begins.
+     */
+    function applySkin(scene, skin) {
+        var r = scene.r;
+        var px = Math.max(1, Math.round((2 * r) / 20));
+        var steps = {
+            left: [-2 * r, 0],
+            top_left: [-r, -r * Math.sqrt(3)],
+            bottom_left: [-r, r * Math.sqrt(3)],
+        };
+        Object.keys(ORIGINS).forEach(function (name) {
+            var dir = skin.directions[name];
+            var origin = ORIGINS[name];
+            var step = steps[name];
+            var sw = dir.frames[0][0].length * px;
+            var sh = Math.max(dir.frames[0].length, dir.caught.length) * px;
+            var ax = (dir.anchor[0] + 0.5) * px;
+            var ay = (dir.anchor[1] + 0.5) * px;
+            // Box around the origin that holds the sprite at the start and
+            // at the end of a step.
+            var minX = Math.min(0, step[0]) - ax;
+            var maxX = Math.max(0, step[0]) - ax + sw;
+            var minY = Math.min(0, step[1]) - ay - px * 2;
+            var maxY = Math.max(0, step[1]) - ay + sh;
+            var width = Math.ceil(Math.max(-minX / origin.x, maxX / (1 - origin.x))) + 2;
+            var height = Math.ceil(Math.max(-minY / origin.y, maxY / (1 - origin.y))) + 2;
+            var ox = origin.x * width;
+            var oy = origin.y * height;
+
+            function paint(key, rows, t) {
+                if (scene.textures.exists(key)) {
+                    scene.textures.remove(key);
+                }
+                var tex = scene.textures.createCanvas(key, width, height);
+                var ctx = tex.getContext();
+                // Feet line up with the anchor; taller sprites grow upwards.
+                var left = Math.round(ox + step[0] * t - ax);
+                var top = Math.round(oy + step[1] * t - ay - (rows.length - dir.frames[0].length) * px);
+                for (var y = 0; y < rows.length; y++) {
+                    for (var x = 0; x < rows[y].length; x++) {
+                        var color = skin.palette[rows[y][x]];
+                        if (!color) continue;
+                        ctx.fillStyle = color;
+                        ctx.fillRect(left + x * px, top + y * px, px, px);
+                    }
+                }
+                tex.refresh();
+            }
+
+            for (var k = 1; k <= 5; k++) {
+                paint(name + "_" + k, dir.frames[k - 1], (k - 1) / 4);
+            }
+            paint("skin_caught_" + name, dir.caught, 0);
+
+            // The animations kept references to the old textures' frames.
+            [name + "_step", name + "_run"].forEach(function (anim) {
+                if (scene.anims.get(anim)) {
+                    scene.anims.remove(anim);
+                }
+            });
+            scene.anims.create({
+                key: name + "_step",
+                frames: [1, 2, 3, 4, 5].map(function (k) { return {key: name + "_" + k}; }),
+                frameRate: FRAME_RATE,
+                repeat: 0,
+            });
+            scene.anims.create({
+                key: name + "_run",
+                frames: [2, 3, 4, 5].map(function (k) { return {key: name + "_" + k}; }),
+                frameRate: FRAME_RATE,
+                repeat: 3,
+            });
+        });
+        scene.cat.resetTextureToStop();
+    }
+
     function patchCat(proto) {
         if (proto.__variantsPatched) return;
         proto.__variantsPatched = true;
+        var originalCaught = proto.caught;
+        proto.caught = function () {
+            if (this.scene.game.skin) {
+                var name = this.direction === 1 || this.direction === 2 ? "top_left"
+                    : this.direction === 4 || this.direction === 5 ? "bottom_left" : "left";
+                this.anims.stop();
+                this.setTexture("skin_caught_" + name);
+                return;
+            }
+            return originalCaught.call(this);
+        };
         var originalCheckState = proto.checkState;
         proto.checkState = function () {
             var scene = this.scene;
@@ -174,6 +282,7 @@
         });
         patchScene(Object.getPrototypeOf(game.mainScene));
         game.rules = opts.rules || {};
+        game.skin = opts.skin || null;
         var solver = function (blocks, i, j) {
             var scene = game.mainScene;
             var turn = scene.variant ? scene.variant.catTurn : 0;

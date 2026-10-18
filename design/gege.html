@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>格格像素猫</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #eeeeee;
+            color: #222222;
+            font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            padding: 16px;
+        }
+        h1 { font-size: 20px; text-align: center; }
+        .sub { text-align: center; color: #555555; font-size: 14px; margin: 4px 0 16px; }
+        section { background: #ffffff; border-radius: 8px; padding: 12px; max-width: 980px; margin: 0 auto 16px; }
+        h2 { font-size: 16px; margin-bottom: 8px; }
+        .frames { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; }
+        .frame { text-align: center; font-size: 12px; color: #777777; }
+        canvas { display: block; image-rendering: pixelated; background: #f6f8fb; border-radius: 4px; }
+        #stage { background: #ffffff; margin: 0 auto; }
+        .controls { text-align: center; margin-top: 8px; font-size: 14px; }
+    </style>
+</head>
+<body>
+<h1>格格 · 像素灰猫</h1>
+<p class="sub">每个方向：站着 + 走路 4 帧 + 炸毛。最下面是放进棋盘、按游戏的方式一格一格走的效果。</p>
+<div id="sheets"></div>
+<section>
+    <h2>在棋盘上走一圈（游戏实际大小 ×2，猫会朝六个方向各走一步）</h2>
+    <canvas id="stage" width="640" height="330"></canvas>
+    <div class="controls"><label><input type="checkbox" id="zoom1"> 改成游戏实际大小（×1）</label></div>
+</section>
+
+<script src="../src/skins/gege.js"></script>
+<script>
+    "use strict";
+    var skin = CatSkins.gege;
+
+    function drawSprite(ctx, rows, x, y, p, flip) {
+        var w = rows[0].length;
+        for (var r = 0; r < rows.length; r++) {
+            for (var c = 0; c < w; c++) {
+                var color = skin.palette[rows[r][c]];
+                if (!color) continue;
+                ctx.fillStyle = color;
+                var cc = flip ? w - 1 - c : c;
+                ctx.fillRect(x + cc * p, y + r * p, p, p);
+            }
+        }
+    }
+
+    function spriteCanvas(rows, p, grid) {
+        var cv = document.createElement("canvas");
+        cv.width = rows[0].length * p;
+        cv.height = rows.length * p;
+        var ctx = cv.getContext("2d");
+        drawSprite(ctx, rows, 0, 0, p, false);
+        if (grid) {
+            ctx.strokeStyle = "rgba(0,0,0,0.06)";
+            for (var i = 0; i <= rows[0].length; i++) { ctx.beginPath(); ctx.moveTo(i * p + 0.5, 0); ctx.lineTo(i * p + 0.5, cv.height); ctx.stroke(); }
+            for (var j = 0; j <= rows.length; j++) { ctx.beginPath(); ctx.moveTo(0, j * p + 0.5); ctx.lineTo(cv.width, j * p + 0.5); ctx.stroke(); }
+        }
+        return cv;
+    }
+
+    var names = {left: "侧面（往左 / 往右走）", top_left: "背面（往上走）", bottom_left: "正面（往下走）"};
+    var sheets = document.getElementById("sheets");
+    var animated = [];
+    Object.keys(skin.directions).forEach(function (key) {
+        var dir = skin.directions[key];
+        var sec = document.createElement("section");
+        sec.innerHTML = "<h2>" + names[key] + "</h2>";
+        var row = document.createElement("div");
+        row.className = "frames";
+        dir.frames.forEach(function (f, i) {
+            var cell = document.createElement("div");
+            cell.className = "frame";
+            cell.appendChild(spriteCanvas(f, 6, true));
+            cell.appendChild(document.createTextNode(i === 0 ? "站着" : "走 " + i));
+            row.appendChild(cell);
+        });
+        var cc = document.createElement("div");
+        cc.className = "frame";
+        cc.appendChild(spriteCanvas(dir.caught, 6, true));
+        cc.appendChild(document.createTextNode("炸毛"));
+        row.appendChild(cc);
+        var anim = document.createElement("div");
+        anim.className = "frame";
+        var acv = spriteCanvas(dir.frames[0], 6, false);
+        anim.appendChild(acv);
+        anim.appendChild(document.createTextNode("原地走动画"));
+        row.appendChild(anim);
+        animated.push({canvas: acv, frames: dir.frames});
+        sec.appendChild(row);
+        sheets.appendChild(sec);
+    });
+
+    var tick = 0;
+    setInterval(function () {
+        tick++;
+        animated.forEach(function (a) {
+            var f = a.frames[1 + (tick % 4)];
+            var ctx = a.canvas.getContext("2d");
+            ctx.clearRect(0, 0, a.canvas.width, a.canvas.height);
+            drawSprite(ctx, f, 0, 0, 6, false);
+        });
+    }, 1000 / 8);
+
+    // ---------- board simulation, same geometry as the game (r = 20) ----------
+    var stage = document.getElementById("stage");
+    var sctx = stage.getContext("2d");
+    sctx.imageSmoothingEnabled = false;
+    var R = 20;
+    var DX = 2 * R;
+    var DY = R * Math.sqrt(3);
+    function cellPos(i, j) {
+        return {x: R * 3 + ((j & 1) === 0 ? R : DX) + i * DX, y: R * 3 + R + j * DY};
+    }
+    // direction index -> [skin direction, flip, step vector]
+    var DIRS = [
+        ["left", false, [-DX, 0]],
+        ["top_left", false, [-R, -DY]],
+        ["top_left", true, [R, -DY]],
+        ["left", true, [DX, 0]],
+        ["bottom_left", true, [R, DY]],
+        ["bottom_left", false, [-R, DY]],
+    ];
+    var NB = function (i, j) {
+        return (j & 1) === 0
+            ? [[i - 1, j], [i - 1, j - 1], [i, j - 1], [i + 1, j], [i, j + 1], [i - 1, j + 1]]
+            : [[i - 1, j], [i, j - 1], [i + 1, j - 1], [i + 1, j], [i + 1, j + 1], [i, j + 1]];
+    };
+    // A closed hexagon: right, down-right, down-left, left, up-left, up-right.
+    var route = [3, 4, 5, 0, 1, 2];
+    var START = {i: 2, j: 1};
+    var cat = {i: START.i, j: START.j, step: 0, frame: 0, dir: route[0], wait: 6};
+    var walls = {"5,0": 1, "0,2": 1, "6,3": 1, "3,2": 1};
+
+    function render() {
+        var scale = document.getElementById("zoom1").checked ? 1 : 2;
+        sctx.setTransform(1, 0, 0, 1, 0, 0);
+        sctx.clearRect(0, 0, stage.width, stage.height);
+        sctx.setTransform(scale, 0, 0, scale, 0, 0);
+        for (var j = 0; j < 5; j++) {
+            for (var i = 0; i < 7; i++) {
+                var p = cellPos(i, j);
+                sctx.fillStyle = walls[i + "," + j] ? "#003366" : "#b3d4fc";
+                sctx.beginPath();
+                sctx.arc(p.x - 40, p.y - 40, R * 0.9, 0, Math.PI * 2);
+                sctx.fill();
+            }
+        }
+        var d = DIRS[cat.dir];
+        var dir = skin.directions[d[0]];
+        var rows = cat.frame === -1 ? dir.caught : dir.frames[cat.frame];
+        var px = 2; // art pixel = 2 game pixels at r = 20
+        var w = rows[0].length;
+        var t = cat.frame <= 0 ? 0 : cat.frame / 4;
+        var base = cellPos(cat.i, cat.j);
+        var cx = base.x - 40 + d[2][0] * t;
+        var cy = base.y - 40 + d[2][1] * t;
+        var ax = d[1] ? w - 1 - dir.anchor[0] : dir.anchor[0];
+        drawSprite(sctx, rows, Math.round(cx - (ax + 0.5) * px), Math.round(cy - (dir.anchor[1] + 0.5) * px), px, d[1]);
+    }
+
+    setInterval(function () {
+        if (cat.wait > 0) {
+            cat.wait--;
+            cat.frame = 0;
+        } else {
+            cat.frame++;
+            if (cat.frame > 4) {
+                var n = NB(cat.i, cat.j)[cat.dir];
+                cat.i = n[0];
+                cat.j = n[1];
+                cat.frame = 0;
+                cat.step = (cat.step + 1) % route.length;
+                cat.dir = route[cat.step];
+                cat.wait = 4;
+                if (cat.step === 0) {
+                    cat.i = START.i;
+                    cat.j = START.j;
+                }
+            }
+        }
+        render();
+    }, 1000 / 10);
+</script>
+</body>
+</html>
