@@ -128,7 +128,12 @@
         proto.checkState = function () {
             var scene = this.scene;
             var rules = scene.game.rules || {};
-            if (!rules.edgeStay || scene.state !== PLAYING || !this.isEscaped()) {
+            if (scene.state !== PLAYING) {
+                // The escape run animation calls this on every repeat; upstream
+                // would set "lose" again and overwrite the status message.
+                return;
+            }
+            if (!rules.edgeStay || !this.isEscaped()) {
                 return originalCheckState.call(this);
             }
             if (this.isCaught()) {
