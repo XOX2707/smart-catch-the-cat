@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>和聪明猫下围棋</title>
+    <style>
+        * {
+            padding: 0;
+            margin: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: #eeeeee;
+            font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: #222222;
+        }
+
+        main {
+            max-width: 560px;
+            margin: 0 auto;
+            padding: 16px;
+        }
+
+        h1 {
+            font-size: 20px;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+
+        .settings, .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 12px;
+            font-size: 14px;
+        }
+
+        select, button {
+            font: inherit;
+            padding: 6px 12px;
+            border: 1px solid #003366;
+            border-radius: 4px;
+            background: #ffffff;
+            color: #003366;
+            cursor: pointer;
+        }
+
+        button.primary {
+            background: #003366;
+            color: #ffffff;
+        }
+
+        button:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
+        #board {
+            display: block;
+            width: 100%;
+            height: auto;
+            touch-action: manipulation;
+            user-select: none;
+        }
+
+        .status {
+            min-height: 3.2em;
+            margin: 12px 0;
+            text-align: center;
+            line-height: 1.6;
+        }
+
+        .cat-line {
+            color: #555555;
+            font-size: 14px;
+        }
+
+        .thinking::after {
+            content: "";
+            animation: dots 1.2s steps(4, end) infinite;
+        }
+
+        @keyframes dots {
+            0% { content: ""; }
+            25% { content: "."; }
+            50% { content: ".."; }
+            75% { content: "..."; }
+        }
+
+        .info {
+            font-size: 13px;
+            color: #555555;
+            line-height: 1.6;
+            text-align: center;
+        }
+
+        a {
+            color: #003366;
+        }
+
+        .rules {
+            margin: 12px 0;
+            padding: 8px 12px;
+            background: #ffffff;
+            border-radius: 6px;
+            font-size: 14px;
+            line-height: 1.7;
+        }
+
+        .rules summary {
+            cursor: pointer;
+            font-weight: 600;
+            color: #003366;
+        }
+
+        .rules ol {
+            padding-left: 1.4em;
+            margin: 6px 0;
+        }
+
+        .rules p {
+            color: #555555;
+        }
+
+        #teacher {
+            margin-top: 4px;
+            font-size: 14px;
+            color: #8a4b00;
+        }
+    </style>
+</head>
+<body>
+<main>
+    <h1>和聪明猫下围棋</h1>
+
+    <div class="settings">
+        <label>猫的水平
+            <select id="level">
+                <option value="80" data-temperature="1.5">小奶猫（练手用，会走神）</option>
+                <option value="400">小猫（想 0.4 秒）</option>
+                <option value="1500" selected>大猫（想 1.5 秒）</option>
+                <option value="5000">猫王（想 5 秒）</option>
+            </select>
+        </label>
+        <label>我执
+            <select id="color">
+                <option value="1" selected>黑棋（先下）</option>
+                <option value="2">白棋（猫先下）</option>
+            </select>
+        </label>
+        <label>让子
+            <select id="handicap">
+                <option value="0">不让</option>
+                <option value="2">猫让我 2 子</option>
+                <option value="3">猫让我 3 子</option>
+                <option value="4">猫让我 4 子</option>
+            </select>
+        </label>
+        <label><input type="checkbox" id="beginner" checked> 新手提示</label>
+        <button type="button" id="new-game" class="primary">新开一局</button>
+    </div>
+
+
+    <svg id="board" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg" aria-label="9 路棋盘"></svg>
+
+    <div class="status">
+        <div id="message"></div>
+        <div id="cat-line" class="cat-line"></div>
+        <div id="teacher"></div>
+    </div>
+
+    <div class="actions">
+        <button type="button" id="hint" class="primary">猫老师教我</button>
+        <button type="button" id="pass">停一手</button>
+        <button type="button" id="undo">悔棋</button>
+        <button type="button" id="resign">认输</button>
+        <button type="button" id="confirm" class="primary" hidden>确认结果</button>
+        <button type="button" id="resume" hidden>继续下</button>
+    </div>
+
+    <p class="info" id="captures"></p>
+
+    <details class="rules" id="rules" open>
+        <summary>第一次下围棋？先看这五句</summary>
+        <ol>
+            <li>轮流把棋子放在线的<b>交叉点</b>上，放下就不动了。</li>
+            <li>棋子上下左右挨着的空点叫<b>气</b>。连在一起的同色棋子共用气。</li>
+            <li>把对方一块棋的气全部堵住，就把它<b>提掉</b>。只剩一口气叫「被打吃」，新手提示会画红圈。</li>
+            <li>最后比谁<b>占的地方大</b>：自己的棋子加上被自己围住的空点。</li>
+            <li>不能下在没气又提不掉别人的地方；刚被提掉一个子的地方，对方不能马上提回来（打劫）。</li>
+        </ol>
+        <p>不知道下哪里就按「猫老师教我」。新手建议先选「小奶猫」，再让 3 到 4 子。</p>
+    </details>
+    <p class="info">
+        9 路棋盘，中国规则数子，白棋贴 7.5 子。双方连续停一手就结束，猫会先帮忙判断死子，你可以点棋子改。<br>
+        猫用的是蒙特卡洛树搜索：每一步在脑子里把棋随机下完几千到几万盘，挑赢得最多的一手。<br>
+        <a href="index.html">回去围神经猫</a>
+    </p>
+</main>
+
+<script src="src/go-engine.js"></script>
+<script src="src/go-ai.js"></script>
+<script>
+    (function () {
+        "use strict";
+
+        var N = 9;
+        var komi = 7.5;
+        var BLACK = GoEngine.BLACK;
+        var WHITE = GoEngine.WHITE;
+        var PASS = GoEngine.PASS;
+        var SVG_NS = "http://www.w3.org/2000/svg";
+        var LETTERS = "ABCDEFGHJ";
+        var STEP = 40;
+        var MARGIN = 40;
+
+        var board;
+        var history;
+        var human = BLACK;
+        var phase = "play"; // play | thinking | scoring | over
+        var requestId = 0;
+        var dead = [];
+        var hover = null;
+        var hintPoint = null;
+
+        var svg = document.getElementById("board");
+        var messageEl = document.getElementById("message");
+        var catLineEl = document.getElementById("cat-line");
+        var teacherEl = document.getElementById("teacher");
+
+        // Worker keeps the page responsive while the cat thinks. Opening the
+        // page as a local file blocks workers, so fall back to the main thread.
+        var worker = null;
+        try {
+            worker = new Worker("src/go-worker.js");
+            worker.onerror = function () {
+                worker = null;
+            };
+        } catch (e) {
+            worker = null;
+        }
+        var pending = {};
+
+        function ask(type, payload, callback) {
+            var id = ++requestId;
+            pending = {id: id, callback: callback};
+            var msg = {id: id, type: type, board: board.toJSON(), opts: payload};
+            if (worker) {
+                worker.onmessage = function (e) {
+                    if (e.data.id === pending.id) pending.callback(e.data);
+                };
+                worker.postMessage(msg);
+            } else {
+                setTimeout(function () {
+                    if (id !== requestId) return;
+                    var b = GoEngine.Board.fromJSON(msg.board);
+                    var reply;
+                    if (type === "move") {
+                        var r = GoAI.chooseMove(b, payload);
+                        reply = {id: id, move: r.move, resign: r.resign, winrate: r.winrate, playouts: r.playouts};
+                    } else {
+                        reply = {id: id, dead: GoAI.estimateDead(b, payload)};
+                    }
+                    if (id === requestId) callback(reply);
+                }, 50);
+            }
+            return id;
+        }
+
+        function colorName(color) {
+            return color === BLACK ? "黑" : "白";
+        }
+
+        function setMessage(text, thinking) {
+            messageEl.textContent = text;
+            messageEl.className = thinking ? "thinking" : "";
+        }
+
+        function catLine(winrate) {
+            if (winrate >= 0.85) return "（尾巴高高翘起）这盘猫要赢啦";
+            if (winrate >= 0.6) return "（尾巴轻轻摇）猫觉得自己有点优势";
+            if (winrate >= 0.4) return "（耳朵竖起来）势均力敌";
+            if (winrate >= 0.15) return "（耳朵往后压）有点难办";
+            return "（尾巴耷拉下来）好像下不过你";
+        }
+
+        function newGame() {
+            requestId++;
+            human = Number(document.getElementById("color").value);
+            board = new GoEngine.Board(N);
+            history = [];
+            dead = [];
+            hintPoint = null;
+            phase = "play";
+            komi = 7.5;
+            catLineEl.textContent = "";
+            teacherEl.textContent = "";
+            var handicap = Number(document.getElementById("handicap").value);
+            if (handicap > 0 && human === BLACK) {
+                // Star points; with handicap White moves first and komi drops to 0.5.
+                var spots = [[6, 2], [2, 6], [6, 6], [2, 2]].slice(0, handicap);
+                spots.forEach(function (s) {
+                    board.cells[board.point(s[0], s[1])] = BLACK;
+                });
+                board.toPlay = WHITE;
+                komi = 0.5;
+                setMessage("猫让你 " + handicap + " 子，猫先下");
+            } else if (handicap > 0) {
+                setMessage("执白时不让子，猫执黑先下");
+            } else {
+                setMessage(human === BLACK ? "你执黑先下，点棋盘落子" : "猫执黑先下");
+            }
+            render();
+            if (board.toPlay !== human) catMove();
+        }
+
+        function afterMove() {
+            render();
+            if (board.isOver()) {
+                startScoring();
+            } else if (board.toPlay !== human) {
+                catMove();
+            } else {
+                phase = "play";
+                updateButtons();
+            }
+        }
+
+        function humanPlay(p) {
+            if (phase !== "play" || board.toPlay !== human) return;
+            if (!board.isLegal(p)) {
+                setMessage(p === board.ko ? "打劫：要先在别处下一手才能提回来" : "这里不能下（会没有气）");
+                return;
+            }
+            history.push(board.toJSON());
+            board.play(p);
+            hover = null;
+            hintPoint = null;
+            teacherEl.textContent = "";
+            afterMove();
+        }
+
+        function humanPass() {
+            if (phase !== "play" || board.toPlay !== human) return;
+            history.push(board.toJSON());
+            board.play(PASS);
+            hintPoint = null;
+            teacherEl.textContent = "";
+            setMessage("你停了一手");
+            afterMove();
+        }
+
+        function catMove() {
+            phase = "thinking";
+            updateButtons();
+            setMessage("猫在想", true);
+            var levelEl = document.getElementById("level");
+            var timeMs = Number(levelEl.value);
+            var temperature = Number(levelEl.selectedOptions[0].getAttribute("data-temperature") || 0);
+            ask("move", {timeMs: timeMs, komi: komi, temperature: temperature}, function (reply) {
+                if (phase !== "thinking") return;
+                if (reply.resign) {
+                    phase = "over";
+                    setMessage("猫认输了，你赢了！");
+                    catLineEl.textContent = "（把脸埋进爪子里）下次不会输的";
+                    render();
+                    return;
+                }
+                history.push(board.toJSON());
+                board.play(reply.move);
+                var where = reply.move === PASS ? "停了一手" : "下在 " + label(reply.move);
+                setMessage("猫" + where + "，轮到你");
+                catLineEl.textContent = catLine(reply.winrate) + "（猫估计自己赢面 " +
+                    Math.round(reply.winrate * 100) + "%，想了 " + reply.playouts + " 盘）";
+                afterMove();
+                warnAtari();
+            });
+        }
+
+        function undo() {
+            if (phase === "over" || history.length === 0) return;
+            requestId++;
+            var snap = history.pop();
+            while (snap.toPlay !== human && history.length) {
+                snap = history.pop();
+            }
+            board = GoEngine.Board.fromJSON(snap);
+            dead = [];
+            hintPoint = null;
+            teacherEl.textContent = "";
+            phase = "play";
+            setMessage("悔了一步");
+            catLineEl.textContent = "（歪头）好吧，让你一次";
+            render();
+            if (board.toPlay !== human) catMove();
+        }
+
+        function resign() {
+            if (phase === "over" || phase === "scoring") return;
+            requestId++;
+            phase = "over";
+            setMessage("你认输了，猫赢了");
+            catLineEl.textContent = "（得意地甩尾巴）再来一盘嘛";
+            render();
+        }
+
+        function startScoring() {
+            phase = "thinking";
+            updateButtons();
+            setMessage("双方都停了一手，猫在帮忙判断死子", true);
+            ask("dead", {komi: komi, playouts: 800}, function (reply) {
+                if (phase !== "thinking") return;
+                dead = reply.dead;
+                phase = "scoring";
+                showScore();
+            });
+        }
+
+        function showScore() {
+            var r = GoEngine.areaScore(board, komi, dead);
+            var winner = r.score > 0 ? BLACK : WHITE;
+            var margin = Math.abs(r.score);
+            var text = "黑 " + r.black + " 子，白 " + r.white + " 子，白贴 " + komi + "：" +
+                colorName(winner) + "胜 " + margin + " 子";
+            if (phase === "scoring") {
+                setMessage(text);
+                catLineEl.textContent = "打叉的是猫认为的死子，点棋子可以改，没问题就按「确认结果」";
+            } else {
+                setMessage(text + "，" + (winner === human ? "你赢了！" : "猫赢了"));
+                catLineEl.textContent = winner === human ? "（耳朵耷拉）你好厉害" : "（尾巴摇个不停）猫赢啦";
+            }
+            render(r.owner);
+        }
+
+        function toggleDead(p) {
+            var group = GoEngine.groupAt(board, p);
+            if (group.length === 0) return;
+            var isDead = dead.indexOf(group[0]) >= 0;
+            if (isDead) {
+                dead = dead.filter(function (q) { return group.indexOf(q) < 0; });
+            } else {
+                dead = dead.concat(group);
+            }
+            showScore();
+        }
+
+        function confirmScore() {
+            if (phase !== "scoring") return;
+            phase = "over";
+            showScore();
+        }
+
+        function resume() {
+            if (phase !== "scoring") return;
+            board.passes = 0;
+            dead = [];
+            setMessage("继续下");
+            catLineEl.textContent = "";
+            afterMove();
+        }
+
+        // Stones of groups with exactly one liberty, split into yours and the cat's.
+        function ataris() {
+            var out = {mine: [], cats: []};
+            var seen = {};
+            for (var y = 0; y < N; y++) {
+                for (var x = 0; x < N; x++) {
+                    var p = board.point(x, y);
+                    var v = board.cells[p];
+                    if ((v !== BLACK && v !== WHITE) || seen[p]) continue;
+                    var group = GoEngine.groupAt(board, p);
+                    group.forEach(function (q) { seen[q] = true; });
+                    if (board.atariLiberty(p) < 0) continue;
+                    if (v === human) out.mine = out.mine.concat(group);
+                    else out.cats = out.cats.concat(group);
+                }
+            }
+            return out;
+        }
+
+        function beginnerOn() {
+            return document.getElementById("beginner").checked;
+        }
+
+        function warnAtari() {
+            if (!beginnerOn() || phase !== "play" || board.toPlay !== human) return;
+            var a = ataris();
+            if (a.mine.length) {
+                teacherEl.textContent = "小心！你有 " + a.mine.length + " 个子只剩一口气（红圈），不救就会被猫吃掉";
+            } else if (a.cats.length) {
+                teacherEl.textContent = "机会！猫有 " + a.cats.length + " 个子只剩一口气（橙圈），堵住最后一口气就能提掉";
+            }
+        }
+
+        // Why the teacher likes a move, in beginner words.
+        function explain(p, winrate) {
+            if (p === PASS) return "猫老师觉得已经没有要下的地方了，可以停一手";
+            var off = [-1, 1, -board.w, board.w];
+            var captured = 0;
+            var saved = 0;
+            for (var k = 0; k < 4; k++) {
+                var q = p + off[k];
+                var v = board.cells[q];
+                if ((v === BLACK || v === WHITE) && board.atariLiberty(q) === p) {
+                    if (v === human) saved += GoEngine.groupAt(board, q).length;
+                    else captured += GoEngine.groupAt(board, q).length;
+                }
+            }
+            var pct = "（下了以后你的赢面大约 " + Math.round(winrate * 100) + "%）";
+            if (captured) return "下在 " + label(p) + "：能把猫的 " + captured + " 个子提掉" + pct;
+            if (saved) return "下在 " + label(p) + "：你的子只剩一口气，在这里长出来救它" + pct;
+            return "猫老师建议下在 " + label(p) + "（绿色的圈）" + pct;
+        }
+
+        function hint() {
+            if (phase !== "play" || board.toPlay !== human) return;
+            var movesAtAsk = board.moves;
+            teacherEl.textContent = "猫老师在想…";
+            ask("move", {timeMs: 1200, komi: komi}, function (reply) {
+                if (phase !== "play" || board.moves !== movesAtAsk) return;
+                hintPoint = reply.move === PASS ? null : reply.move;
+                teacherEl.textContent = explain(reply.move, reply.winrate);
+                render();
+            });
+        }
+
+        function label(p) {
+            var xy = board.xy(p);
+            return LETTERS[xy[0]] + (N - xy[1]);
+        }
+
+        function updateButtons() {
+            var myTurn = phase === "play" && board.toPlay === human;
+            document.getElementById("pass").disabled = !myTurn;
+            document.getElementById("hint").disabled = !myTurn;
+            document.getElementById("undo").disabled = history.length === 0 || phase === "over" || phase === "scoring";
+            document.getElementById("resign").disabled = phase === "over" || phase === "scoring";
+            document.getElementById("confirm").hidden = phase !== "scoring";
+            document.getElementById("resume").hidden = phase !== "scoring";
+            document.getElementById("captures").textContent =
+                "你提了 " + board.captures[human] + " 子 · 猫提了 " + board.captures[3 - human] + " 子";
+        }
+
+        function el(name, attrs, parent) {
+            var node = document.createElementNS(SVG_NS, name);
+            for (var k in attrs) node.setAttribute(k, attrs[k]);
+            if (parent) parent.appendChild(node);
+            return node;
+        }
+
+        function pos(i) {
+            return MARGIN + i * STEP;
+        }
+
+        function drawStone(parent, x, y, color, isCat, opacity) {
+            var g = el("g", {opacity: opacity === undefined ? 1 : opacity}, parent);
+            el("circle", {
+                cx: x, cy: y, r: 18.5,
+                fill: color === BLACK ? "url(#black-stone)" : "url(#white-stone)",
+                stroke: color === BLACK ? "#000000" : "#9a9a9a",
+                "stroke-width": 0.8,
+            }, g);
+            if (isCat) {
+                el("use", {
+                    href: "#paw", x: x - 9, y: y - 9, width: 18, height: 18,
+                    fill: color === BLACK ? "#8a8a8a" : "#b8b8b8",
+                }, g);
+            }
+            return g;
+        }
+
+        function render(owner) {
+            while (svg.firstChild) svg.removeChild(svg.firstChild);
+            var defs = el("defs", {}, svg);
+            var gb = el("radialGradient", {id: "black-stone", cx: "35%", cy: "30%", r: "70%"}, defs);
+            el("stop", {offset: "0%", "stop-color": "#555555"}, gb);
+            el("stop", {offset: "100%", "stop-color": "#111111"}, gb);
+            var gw = el("radialGradient", {id: "white-stone", cx: "35%", cy: "30%", r: "70%"}, defs);
+            el("stop", {offset: "0%", "stop-color": "#ffffff"}, gw);
+            el("stop", {offset: "100%", "stop-color": "#d6d6d6"}, gw);
+            var paw = el("symbol", {id: "paw", viewBox: "0 0 24 24"}, defs);
+            el("ellipse", {cx: 12, cy: 16, rx: 5.5, ry: 4.5}, paw);
+            el("ellipse", {cx: 5, cy: 10, rx: 2.2, ry: 2.8}, paw);
+            el("ellipse", {cx: 9.5, cy: 6, rx: 2.2, ry: 2.8}, paw);
+            el("ellipse", {cx: 14.5, cy: 6, rx: 2.2, ry: 2.8}, paw);
+            el("ellipse", {cx: 19, cy: 10, rx: 2.2, ry: 2.8}, paw);
+
+            el("rect", {x: 0, y: 0, width: 400, height: 400, rx: 6, fill: "#e3bd7a"}, svg);
+            for (var i = 0; i < N; i++) {
+                el("line", {x1: pos(0), y1: pos(i), x2: pos(N - 1), y2: pos(i), stroke: "#5c4320", "stroke-width": 1}, svg);
+                el("line", {x1: pos(i), y1: pos(0), x2: pos(i), y2: pos(N - 1), stroke: "#5c4320", "stroke-width": 1}, svg);
+                var t1 = el("text", {x: pos(i), y: 22, "text-anchor": "middle", "font-size": 12, fill: "#5c4320"}, svg);
+                t1.textContent = LETTERS[i];
+                var t2 = el("text", {x: 18, y: pos(i) + 4, "text-anchor": "middle", "font-size": 12, fill: "#5c4320"}, svg);
+                t2.textContent = String(N - i);
+            }
+            [[2, 2], [6, 2], [4, 4], [2, 6], [6, 6]].forEach(function (s) {
+                el("circle", {cx: pos(s[0]), cy: pos(s[1]), r: 3, fill: "#5c4320"}, svg);
+            });
+
+            for (var y = 0; y < N; y++) {
+                for (var x = 0; x < N; x++) {
+                    var p = board.point(x, y);
+                    var v = board.cells[p];
+                    var cx = pos(x);
+                    var cy = pos(y);
+                    var isDead = dead.indexOf(p) >= 0;
+                    if (v === BLACK || v === WHITE) {
+                        drawStone(svg, cx, cy, v, v !== human, isDead ? 0.45 : 1);
+                        if (isDead) {
+                            el("path", {
+                                d: "M" + (cx - 7) + " " + (cy - 7) + "L" + (cx + 7) + " " + (cy + 7) +
+                                    "M" + (cx + 7) + " " + (cy - 7) + "L" + (cx - 7) + " " + (cy + 7),
+                                stroke: "#c0392b", "stroke-width": 2.5,
+                            }, svg);
+                        }
+                    }
+                    if (owner && (owner[p] === BLACK || owner[p] === WHITE) && (v === GoEngine.EMPTY || isDead)) {
+                        el("rect", {
+                            x: cx - 5, y: cy - 5, width: 10, height: 10,
+                            fill: owner[p] === BLACK ? "#111111" : "#ffffff",
+                            stroke: "#5c4320", "stroke-width": 0.5,
+                        }, svg);
+                    }
+                }
+            }
+
+            if (board.lastMove !== PASS && phase !== "scoring" && phase !== "over") {
+                var lm = board.xy(board.lastMove);
+                el("circle", {
+                    cx: pos(lm[0]), cy: pos(lm[1]), r: 6, fill: "none",
+                    stroke: board.cells[board.lastMove] === BLACK ? "#ffffff" : "#000000", "stroke-width": 2,
+                }, svg);
+            }
+
+            if (beginnerOn() && (phase === "play" || phase === "thinking")) {
+                var a = ataris();
+                a.mine.forEach(function (q) {
+                    var qx = board.xy(q);
+                    el("circle", {cx: pos(qx[0]), cy: pos(qx[1]), r: 20, fill: "none", stroke: "#d62828", "stroke-width": 3}, svg);
+                });
+                a.cats.forEach(function (q) {
+                    var qx = board.xy(q);
+                    el("circle", {
+                        cx: pos(qx[0]), cy: pos(qx[1]), r: 20, fill: "none",
+                        stroke: "#f08c00", "stroke-width": 3, "stroke-dasharray": "5 3",
+                    }, svg);
+                });
+            }
+
+            if (hintPoint !== null && phase === "play") {
+                var hp = board.xy(hintPoint);
+                var ring = el("circle", {cx: pos(hp[0]), cy: pos(hp[1]), r: 14, fill: "none", stroke: "#2b8a3e", "stroke-width": 4}, svg);
+                el("animate", {attributeName: "r", values: "10;17;10", dur: "1.2s", repeatCount: "indefinite"}, ring);
+            }
+
+            if (hover !== null && phase === "play" && board.toPlay === human && board.isLegal(hover)) {
+                var hv = board.xy(hover);
+                drawStone(svg, pos(hv[0]), pos(hv[1]), human, false, 0.4);
+            }
+
+            // Click targets on top of everything
+            var targets = el("g", {}, svg);
+            for (var yy = 0; yy < N; yy++) {
+                for (var xx = 0; xx < N; xx++) {
+                    el("rect", {
+                        x: pos(xx) - STEP / 2, y: pos(yy) - STEP / 2, width: STEP, height: STEP,
+                        fill: "transparent", "data-p": board.point(xx, yy),
+                    }, targets);
+                }
+            }
+            updateButtons();
+        }
+
+        svg.addEventListener("click", function (e) {
+            var p = e.target.getAttribute && e.target.getAttribute("data-p");
+            if (p === null || p === undefined) return;
+            p = Number(p);
+            if (phase === "scoring") {
+                toggleDead(p);
+            } else {
+                humanPlay(p);
+            }
+        });
+
+        svg.addEventListener("pointermove", function (e) {
+            if (e.pointerType !== "mouse") return;
+            var p = e.target.getAttribute && e.target.getAttribute("data-p");
+            var next = p === null || p === undefined ? null : Number(p);
+            if (next !== hover) {
+                hover = next;
+                if (phase === "play") render();
+            }
+        });
+
+        svg.addEventListener("pointerleave", function () {
+            if (hover !== null) {
+                hover = null;
+                if (phase === "play") render();
+            }
+        });
+
+        document.getElementById("new-game").addEventListener("click", newGame);
+        document.getElementById("pass").addEventListener("click", humanPass);
+        document.getElementById("hint").addEventListener("click", hint);
+        document.getElementById("beginner").addEventListener("change", function () {
+            teacherEl.textContent = "";
+            render();
+            warnAtari();
+        });
+        document.getElementById("undo").addEventListener("click", undo);
+        document.getElementById("resign").addEventListener("click", resign);
+        document.getElementById("confirm").addEventListener("click", confirmScore);
+        document.getElementById("resume").addEventListener("click", resume);
+
+        newGame();
+    })();
+</script>
+</body>
+</html>
