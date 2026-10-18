@@ -107,27 +107,29 @@
     }
 
     /**
-     * "Two-distance": how many cat moves it takes to escape from a cell when
-     * the player moves first and always blocks the cat's best next step.
+     * "k-distance": how many cat moves it takes to escape from a cell when
+     * the player moves first and walls off k - 1 cells before every cat move.
+     * The normal game is k = 2 ("two-distance").
      *
-     * An edge cell is 0. Any other cell is 1 + the second smallest value among
-     * its neighbours, because the player will wall off the smallest one.
-     * Cells reached in BFS order, so the second neighbour to be finalised is
-     * exactly the second smallest. Cells that never get two finalised
-     * neighbours stay INF: the player can always seal them off.
+     * A free edge cell is 0 (when edgeOk is given, only the edge cells it
+     * accepts count). Any other cell is 1 + the k-th smallest value among its
+     * neighbours, because the player walls off the k - 1 best ones. Cells are
+     * reached in BFS order, so the k-th neighbour to be finalised is exactly
+     * the k-th smallest. Cells that never get k finalised neighbours stay
+     * INF: the player can always seal them off.
      */
-    function twoDistance(g, wall, out, countBuf, queueBuf) {
+    function kDistance(g, wall, k, edgeOk, out, countBuf, queueBuf) {
         var dist = out || new Int32Array(g.n);
         var count = countBuf || new Uint8Array(g.n);
         var queue = queueBuf || new Int32Array(g.n);
         var head = 0;
         var tail = 0;
-        for (var k = 0; k < g.n; k++) {
-            dist[k] = INF;
-            count[k] = 0;
-            if (g.edge[k] && !wall[k]) {
-                dist[k] = 0;
-                queue[tail++] = k;
+        for (var c0 = 0; c0 < g.n; c0++) {
+            dist[c0] = INF;
+            count[c0] = 0;
+            if (g.edge[c0] && !wall[c0] && (!edgeOk || edgeOk(c0))) {
+                dist[c0] = 0;
+                queue[tail++] = c0;
             }
         }
         while (head < tail) {
@@ -138,13 +140,17 @@
                     continue;
                 }
                 count[m]++;
-                if (count[m] === 2) {
+                if (count[m] === k) {
                     dist[m] = dist[c] + 1;
                     queue[tail++] = m;
                 }
             }
         }
         return dist;
+    }
+
+    function twoDistance(g, wall, out, countBuf, queueBuf) {
+        return kDistance(g, wall, 2, null, out, countBuf, queueBuf);
     }
 
     // Number of free cells the cat can still reach from start.
@@ -181,33 +187,69 @@
      *    player misses the right wall.
      * 4. If there is no way to the edge at all, keep walking inside the
      *    enclosure instead of giving up, so the player has to fill it in.
+     *
+     * rules (optional) describes the variant being played:
+     *   blocks:   walls the player places before the cat's next move (default 1)
+     *   edgeStay: the cat has to wait one turn on an edge cell before it can
+     *             leave, and is caught there if the player walls it in
      */
-    function smartSolver(blocksIsWall, ci, cj) {
+    function smartSolver(blocksIsWall, ci, cj, rules) {
         var w = blocksIsWall.length;
         var h = blocksIsWall[0].length;
         var g = geometry(w, h);
         var wall = toFlat(blocksIsWall, g);
         var cat = ci * h + cj;
+        var blocks = rules && rules.blocks > 0 ? rules.blocks : 1;
+        var k = blocks + 1;
+
+        // With edgeStay an edge cell is only a way out if the player cannot
+        // wall in all of its free neighbours during the wait.
+        var edgeOk = rules && rules.edgeStay ? function (e) {
+            return freeNeighbours(g, wall, e) > blocks;
+        } : null;
 
         var steps = [];
+        var riskyEdges = [];
         for (var d = 0; d < 6; d++) {
             var m = g.nb[cat * 6 + d];
             if (m >= 0 && !wall[m]) {
                 if (g.edge[m]) {
-                    return d;
+                    if (!edgeOk || edgeOk(m)) {
+                        return d;
+                    }
+                    riskyEdges.push(d);
+                } else {
+                    steps.push({d: d, k: m});
                 }
-                steps.push({d: d, k: m});
             }
         }
         if (steps.length === 0) {
-            return -1;
+            return riskyEdges.length ? riskyEdges[0] : -1;
         }
 
         var bufDist = new Int32Array(g.n);
         var bufCount = new Uint8Array(g.n);
         var bufQueue = new Int32Array(g.n);
-        var baseTwo = twoDistance(g, wall, new Int32Array(g.n), bufCount, bufQueue);
+        var baseTwo = kDistance(g, wall, k, edgeOk, new Int32Array(g.n), bufCount, bufQueue);
         var baseOne = edgeDistance(g, wall, new Int32Array(g.n));
+        var vals = [];
+
+        // The cat's best follow-up from pos that the player cannot also wall
+        // off: the player still has blocks - 1 walls after the one tried.
+        function bestFollowUp(pos, dist) {
+            vals.length = 0;
+            for (var dd = 0; dd < 6; dd++) {
+                var y = g.nb[pos * 6 + dd];
+                if (y >= 0 && !wall[y]) {
+                    vals.push(dist[y]);
+                }
+            }
+            if (vals.length < blocks) {
+                return INF;
+            }
+            vals.sort(function (a, b) { return a - b; });
+            return vals[blocks - 1];
+        }
 
         // Worst-case value of standing on `pos` after the player places one
         // more wall, measured with `metric` (twoDistance or edgeDistance).
@@ -219,15 +261,9 @@
                 }
                 wall[x] = 1;
                 var dist = metric === twoDistance
-                    ? twoDistance(g, wall, bufDist, bufCount, bufQueue)
+                    ? kDistance(g, wall, k, edgeOk, bufDist, bufCount, bufQueue)
                     : edgeDistance(g, wall, bufDist);
-                var best = INF;
-                for (var dd = 0; dd < 6; dd++) {
-                    var y = g.nb[pos * 6 + dd];
-                    if (y >= 0 && !wall[y] && dist[y] < best) {
-                        best = dist[y];
-                    }
-                }
+                var best = bestFollowUp(pos, dist);
                 wall[x] = 0;
                 if (best > worst) {
                     worst = best;
@@ -362,13 +398,38 @@
         return dir;
     }
 
+    /**
+     * Rule variants, shared by the page and the simulator:
+     *   wallsPerTurn: walls the player places before the cat moves (1 or 2)
+     *   napEvery:     the cat skips every n-th of its turns (0 = never)
+     *   edgeStay:     the cat waits one turn on the edge before leaving
+     * Returns how many walls the player gets between the cat move it is
+     * making now (its catTurn-th turn) and its next real move.
+     */
+    function wallsBeforeNextMove(rules, catTurn) {
+        var per = (rules && rules.wallsPerTurn) || 1;
+        var nap = (rules && rules.napEvery) || 0;
+        var total = 0;
+        var t = catTurn + 1;
+        for (;;) {
+            total += per;
+            if (nap && t % nap === 0) {
+                t++;
+            } else {
+                return total;
+            }
+        }
+    }
+
     return {
         INF: INF,
+        wallsBeforeNextMove: wallsBeforeNextMove,
         getNeighbours: getNeighbours,
         geometry: geometry,
         toFlat: toFlat,
         edgeDistance: edgeDistance,
         twoDistance: twoDistance,
+        kDistance: kDistance,
         smartSolver: smartSolver,
         classicSolver: classicSolver,
     };

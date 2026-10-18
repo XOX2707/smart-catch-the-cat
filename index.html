@@ -62,12 +62,29 @@
         a {
             color: #003366;
         }
+
+        .options {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 6px;
+            width: fit-content;
+            margin: 12px auto 0;
+            font-size: 14px;
+            text-align: left;
+        }
+
+        .options select {
+            font: inherit;
+            padding: 2px 4px;
+        }
     </style>
 </head>
 <body>
     <script src="vendor/phaser.min.js"></script>
     <script src="vendor/catch-the-cat.js"></script>
     <script src="src/cat-ai.js"></script>
+    <script src="src/variants.js"></script>
     <div id="catch-the-cat"></div>
     <div class="panel">
         <div class="switch">
@@ -75,6 +92,20 @@
             <button type="button" data-cat="classic">原版猫</button>
         </div>
         <p class="hint" id="hint"></p>
+        <div class="options">
+            <label>棋盘
+                <select id="size" autocomplete="off">
+                    <option value="9">9×9（猫离边 4 步）</option>
+                    <option value="11" selected>11×11（原版）</option>
+                    <option value="13">13×13（猫离边 6 步）</option>
+                    <option value="15">15×15（猫离边 7 步）</option>
+                </select>
+            </label>
+            <label><input type="checkbox" data-rule="double" autocomplete="off"> 你每回合放两块墙</label>
+            <label><input type="checkbox" data-rule="nap" autocomplete="off"> 猫每走两步打一次盹</label>
+            <label><input type="checkbox" data-rule="edge" autocomplete="off"> 猫在边上要喘口气才能逃</label>
+        </div>
+        <p class="hint" id="rules-hint"></p>
         <p class="hint">
             <label><input type="checkbox" id="show-plan"> 偷看猫的打算</label>
             <span id="plan"></span>
@@ -97,42 +128,80 @@
             }
         };
 
-        window.game = new CatchTheCatGame({
-            w: 11,
-            h: 11,
-            r: 20,
-            initialWallCount: 8,
-            backgroundColor: 0xffffff,
-            parent: "catch-the-cat",
-            statusBarAlign: "center",
-            credit: "github.com/ganlvtech"
-        });
+        var ruleInfo = {
+            double: {key: "wallsPerTurn", value: 2, text: "你每回合放两块墙，猫才走一步"},
+            nap: {key: "napEvery", value: 3, text: "猫每走两步就打一次盹，那回合不动"},
+            edge: {key: "edgeStay", value: true, text: "猫走到边上要停一回合才能逃，这时把它身边堵满就算抓到"}
+        };
+        var settings = {cat: "smart", size: 11, rules: []};
 
-        function useCat(name) {
-            // The solver setter also writes to the cat sprite, which does not
-            // exist until the scene is created; the scene reads game.solver then.
-            try {
-                window.game.solver = cats[name].solver;
-            } catch (e) {
-            }
-            document.getElementById("hint").textContent = cats[name].hint;
-            document.querySelectorAll(".switch button").forEach(function (b) {
-                b.classList.toggle("active", b.getAttribute("data-cat") === name);
+        // Any change of cat, board size or rules starts a new game.
+        function startGame() {
+            var rules = {};
+            settings.rules.forEach(function (name) {
+                rules[ruleInfo[name].key] = ruleInfo[name].value;
             });
+            CatVariants.createGame({
+                parent: "catch-the-cat",
+                size: settings.size,
+                rules: rules,
+                solver: cats[settings.cat].solver
+            });
+
+            document.getElementById("hint").textContent = cats[settings.cat].hint;
+            document.querySelectorAll(".switch button").forEach(function (b) {
+                b.classList.toggle("active", b.getAttribute("data-cat") === settings.cat);
+            });
+            document.getElementById("size").value = String(settings.size);
+            document.querySelectorAll("[data-rule]").forEach(function (box) {
+                box.checked = settings.rules.indexOf(box.getAttribute("data-rule")) >= 0;
+            });
+            document.getElementById("rules-hint").textContent = settings.rules.length
+                ? "新规则：" + settings.rules.map(function (name) { return ruleInfo[name].text; }).join("；")
+                : "";
+
+            var url = new URL(location.href);
+            url.searchParams.set("cat", settings.cat);
+            url.searchParams.set("size", settings.size);
+            if (settings.rules.length) {
+                url.searchParams.set("rules", settings.rules.join(","));
+            } else {
+                url.searchParams.delete("rules");
+            }
+            history.replaceState(null, "", url);
+            lastKey = "";
         }
 
         document.querySelectorAll(".switch button").forEach(function (b) {
             b.addEventListener("click", function () {
-                var name = b.getAttribute("data-cat");
-                useCat(name);
-                var url = new URL(location.href);
-                url.searchParams.set("cat", name);
-                history.replaceState(null, "", url);
+                settings.cat = b.getAttribute("data-cat");
+                startGame();
+            });
+        });
+        document.getElementById("size").addEventListener("change", function (e) {
+            settings.size = Number(e.target.value);
+            startGame();
+        });
+        document.querySelectorAll("[data-rule]").forEach(function (box) {
+            box.addEventListener("change", function () {
+                settings.rules = [];
+                document.querySelectorAll("[data-rule]").forEach(function (b) {
+                    if (b.checked) settings.rules.push(b.getAttribute("data-rule"));
+                });
+                startGame();
             });
         });
 
-        var initial = new URLSearchParams(location.search).get("cat");
-        useCat(cats[initial] ? initial : "smart");
+        var params = new URLSearchParams(location.search);
+        if (cats[params.get("cat")]) {
+            settings.cat = params.get("cat");
+        }
+        if (["9", "11", "13", "15"].indexOf(params.get("size")) >= 0) {
+            settings.size = Number(params.get("size"));
+        }
+        settings.rules = (params.get("rules") || "").split(",").filter(function (name) {
+            return ruleInfo[name];
+        });
 
         // "Peek" asks the current cat where it would step on the board as it
         // is now; the wall you place next can change its mind. The facing of
@@ -140,6 +209,7 @@
         // (bottom-left) and says nothing about this.
         var directionNames = ["左", "左上", "右上", "右", "右下", "左下"];
         var lastKey = "";
+        startGame();
 
         function updatePlan() {
             var planEl = document.getElementById("plan");
@@ -150,7 +220,7 @@
                 return;
             }
             var cat = scene.cat;
-            var key = scene.state + "|" + cat.i + "," + cat.j + "|" + cat.solver.name + "|" +
+            var key = scene.state + "|" + cat.i + "," + cat.j + "|" + settings.cat + "|" +
                 scene.blocksData.map(function (col) {
                     return col.map(function (x) { return x ? 1 : 0; }).join("");
                 }).join("");

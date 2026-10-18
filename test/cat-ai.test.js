@@ -98,6 +98,48 @@ test("smartSolver keeps moving inside an enclosure instead of giving up", () => 
     assert.ok(dir >= 0 && dir <= 5);
 });
 
+test("wallsBeforeNextMove counts double walls and naps", () => {
+    assert.equal(CatAI.wallsBeforeNextMove({}, 1), 1);
+    assert.equal(CatAI.wallsBeforeNextMove({wallsPerTurn: 2}, 1), 2);
+    // napEvery 3: turn 3 is a nap, so after turn 2 the player gets two turns.
+    assert.equal(CatAI.wallsBeforeNextMove({napEvery: 3}, 1), 1);
+    assert.equal(CatAI.wallsBeforeNextMove({napEvery: 3}, 2), 2);
+    assert.equal(CatAI.wallsBeforeNextMove({wallsPerTurn: 2, napEvery: 3}, 2), 4);
+});
+
+test("kDistance with k = 2 matches twoDistance", () => {
+    const g = CatAI.geometry(11, 11);
+    const {walls} = randomBoard(5);
+    const flat = CatAI.toFlat(walls, g);
+    assert.deepEqual(CatAI.kDistance(g, flat, 2, null), CatAI.twoDistance(g, flat));
+});
+
+test("with edgeStay the smart cat avoids an edge cell it would be walled in on", () => {
+    const walls = emptyBoard();
+    // (0, 5) is an edge cell; leave it only the cat's own cell as a free neighbour.
+    for (const p of CatAI.getNeighbours(0, 5)) {
+        if (p.i >= 0 && !(p.i === 1 && p.j === 5)) walls[p.i][p.j] = true;
+    }
+    const dir = CatAI.smartSolver(walls, 1, 5, {blocks: 1, edgeStay: true});
+    const next = CatAI.getNeighbours(1, 5)[dir];
+    assert.ok(!(next.i === 0 && next.j === 5), "should not step onto the trap");
+    // Without edgeStay that edge cell is an instant escape.
+    const plain = CatAI.getNeighbours(1, 5)[CatAI.smartSolver(walls, 1, 5)];
+    assert.equal(plain.i, 0);
+});
+
+test("variant games run to the end and the extra walls help the player", () => {
+    let normal = 0;
+    let double = 0;
+    for (let seed = 1; seed <= 15; seed++) {
+        if (playGame(randomBoard(seed), CatAI.smartSolver, heuristicPlayer).winner === "player") normal++;
+        if (playGame(randomBoard(seed), CatAI.smartSolver, heuristicPlayer, {wallsPerTurn: 2}).winner === "player") double++;
+        const r = playGame(randomBoard(seed, 13, 13, 11), CatAI.smartSolver, heuristicPlayer, {napEvery: 3, edgeStay: true});
+        assert.ok(r.winner === "player" || r.winner === "cat");
+    }
+    assert.ok(double > normal, `double ${double} vs normal ${normal}`);
+});
+
 test("smart cat escapes the heuristic player more often than the classic cat", () => {
     let classic = 0;
     let smart = 0;

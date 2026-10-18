@@ -6,6 +6,7 @@
   "license": "MIT",
   "scripts": {
     "test": "node --test test/*.test.js",
-    "bench": "node bench/bench.js"
+    "bench": "node bench/bench.js",
+    "bench:variants": "node bench/variants.js"
   }
 }

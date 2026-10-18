@@ -52,15 +52,21 @@ function isCaught(walls, ci, cj) {
 }
 
 /**
- * Plays one game the way MainScene.playerClick does.
+ * Plays one game the way MainScene.playerClick does, optionally with rule
+ * variants (see CatAI.wallsBeforeNextMove): {wallsPerTurn, napEvery, edgeStay}.
  * Returns {winner: "player" | "cat", reason, moves}.
  */
-function playGame(board, catSolver, player) {
+function playGame(board, catSolver, player, rules) {
+    rules = rules || {};
+    const perTurn = rules.wallsPerTurn || 1;
     const walls = board.walls.map((col) => col.slice());
     const w = walls.length;
     const h = walls[0].length;
     let ci = board.ci;
     let cj = board.cj;
+    let placed = 0;
+    let catTurn = 0;
+    let onEdge = false;
     for (let moves = 1; moves <= w * h; moves++) {
         const [wi, wj] = player(walls, ci, cj, catSolver);
         if (walls[wi][wj] || (wi === ci && wj === cj)) {
@@ -68,7 +74,15 @@ function playGame(board, catSolver, player) {
         }
         walls[wi][wj] = true;
         if (isCaught(walls, ci, cj)) return {winner: "player", reason: "caught", moves};
-        const dir = catSolver(walls, ci, cj);
+        if (++placed < perTurn) continue;
+        placed = 0;
+        catTurn++;
+        if (rules.napEvery && catTurn % rules.napEvery === 0) continue;
+        if (onEdge) return {winner: "cat", reason: "escaped after a pause", moves};
+        const dir = catSolver(walls, ci, cj, {
+            blocks: CatAI.wallsBeforeNextMove(rules, catTurn),
+            edgeStay: !!rules.edgeStay,
+        });
         if (dir < 0 || dir > 5) return {winner: "player", reason: "gave up", moves};
         const next = CatAI.getNeighbours(ci, cj)[dir];
         if (!inside(w, h, next) || walls[next.i][next.j]) {
@@ -76,7 +90,11 @@ function playGame(board, catSolver, player) {
         }
         ci = next.i;
         cj = next.j;
-        if (isEdge(w, h, ci, cj)) return {winner: "cat", reason: "escaped", moves};
+        if (isEdge(w, h, ci, cj)) {
+            if (!rules.edgeStay) return {winner: "cat", reason: "escaped", moves};
+            if (isCaught(walls, ci, cj)) return {winner: "player", reason: "caught on the edge", moves};
+            onEdge = true;
+        }
     }
     throw new Error("game did not end");
 }
