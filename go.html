@@ -55,7 +55,7 @@
             color: #ffffff;
         }
 
-        button:disabled {
+        button:disabled, select:disabled {
             opacity: 0.4;
             cursor: default;
         }
@@ -140,28 +140,28 @@
 
     <div class="settings">
         <label>猫的水平
-            <select id="level">
-                <option value="80" data-temperature="1.5">小奶猫（练手用，会走神）</option>
+            <select id="level" autocomplete="off">
+                <option value="80" data-temperature="1.5" selected>小奶猫（练手用，会走神）</option>
                 <option value="400">小猫（想 0.4 秒）</option>
-                <option value="1500" selected>大猫（想 1.5 秒）</option>
+                <option value="1500">大猫（想 1.5 秒）</option>
                 <option value="5000">猫王（想 5 秒）</option>
             </select>
         </label>
         <label>我执
-            <select id="color">
+            <select id="color" autocomplete="off">
                 <option value="1" selected>黑棋（先下）</option>
                 <option value="2">白棋（猫先下）</option>
             </select>
         </label>
         <label>让子
-            <select id="handicap">
+            <select id="handicap" autocomplete="off">
                 <option value="0">不让</option>
                 <option value="2">猫让我 2 子</option>
                 <option value="3">猫让我 3 子</option>
-                <option value="4">猫让我 4 子</option>
+                <option value="4" selected>猫让我 4 子</option>
             </select>
         </label>
-        <label><input type="checkbox" id="beginner" checked> 新手提示</label>
+        <label><input type="checkbox" id="beginner" autocomplete="off" checked> 新手提示</label>
         <button type="button" id="new-game" class="primary">新开一局</button>
     </div>
 
@@ -310,8 +310,6 @@
                 board.toPlay = WHITE;
                 komi = 0.5;
                 setMessage("猫让你 " + handicap + " 子，猫先下");
-            } else if (handicap > 0) {
-                setMessage("执白时不让子，猫执黑先下");
             } else {
                 setMessage(human === BLACK ? "你执黑先下，点棋盘落子" : "猫执黑先下");
             }
@@ -705,6 +703,16 @@
             }
         });
 
+        // Handicap only exists when you play Black, so grey it out for White.
+        function syncHandicap() {
+            var white = Number(document.getElementById("color").value) === WHITE;
+            var handicap = document.getElementById("handicap");
+            handicap.disabled = white;
+            handicap.title = white ? "执白时猫不让子，想要让子请选黑棋" : "";
+        }
+
+        document.getElementById("color").addEventListener("change", syncHandicap);
+        syncHandicap();
         document.getElementById("new-game").addEventListener("click", newGame);
         document.getElementById("pass").addEventListener("click", humanPass);
         document.getElementById("hint").addEventListener("click", hint);
