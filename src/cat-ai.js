@@ -177,6 +177,244 @@
     /**
      * Smart cat.
      *
+     * Under the normal rules (one wall per cat move) it searches two rounds
+     * ahead: cat step, the player's best wall, cat step, the player's best
+     * wall, then scores the position by two-distance (see lookahead). Looking
+     * only one wall ahead, the cat kept turning away from whichever side the
+     * player was walling and circled until it was fenced in; the second
+     * round lets it see that and run for the side that stays open.
+     *
+     * With rule variants, or when the search runs out of time or finds every
+     * step lost, it falls back to shallowSolver.
+     */
+    function smartSolver(blocksIsWall, ci, cj, rules) {
+        var normal = !rules || ((!rules.blocks || rules.blocks === 1) && !rules.edgeStay);
+        if (normal) {
+            var w = blocksIsWall.length;
+            var h = blocksIsWall[0].length;
+            var g = geometry(w, h);
+            var d = lookahead(g, toFlat(blocksIsWall, g), ci * h + cj, SEARCH_MS, SEARCH_ROUNDS);
+            if (d >= 0) {
+                return d;
+            }
+        }
+        return shallowSolver(blocksIsWall, ci, cj, rules);
+    }
+
+    var BIG = 1e7;
+    var SEARCH_MS = 300;
+    // Three rounds was not clearly better in the benchmark and often hit
+    // the time limit on 13x13 and up.
+    var SEARCH_ROUNDS = 2;
+    // Walls tried at the first player turn, best-looking first.
+    var SEARCH_WIDTH = 10;
+
+    /**
+     * Alpha-beta search: cat step, wall, cat step, wall, then the leaf score
+     * (lower is better for the cat). Returns the direction of the best first
+     * step, or -1 when there is nothing to decide, the time runs out, or
+     * every step loses against best play.
+     */
+    function lookahead(g, wall, cat, timeLimit, maxRounds) {
+        var nb = g.nb;
+        var n = g.n;
+        var deadline = Date.now() + timeLimit;
+        var dist = new Int32Array(n);
+        var count = new Uint8Array(n);
+        var queue = new Int32Array(n);
+        var timeout = {};
+        // Two-distance of the cat's best step in the last leaf() call.
+        var leafBest = INF;
+
+        // Cat to move, no more searching. An escape next to the cat beats
+        // everything and being walled in loses; otherwise the score is the
+        // two-distance of the cat's best step, a little better when several
+        // steps are that good, so the player cannot cover them all.
+        function leaf(pos) {
+            var free = 0;
+            for (var d = 0; d < 6; d++) {
+                var m = nb[pos * 6 + d];
+                if (m >= 0 && !wall[m]) {
+                    if (g.edge[m]) return -BIG;
+                    free++;
+                }
+            }
+            if (free === 0) return BIG;
+            kDistance(g, wall, 2, null, dist, count, queue);
+            var best = INF;
+            var ties = 0;
+            leafBest = INF;
+            for (var e = 0; e < 6; e++) {
+                var y = nb[pos * 6 + e];
+                if (y < 0 || wall[y]) continue;
+                if (dist[y] < best) {
+                    best = dist[y];
+                    ties = 1;
+                } else if (dist[y] === best) {
+                    ties++;
+                }
+            }
+            leafBest = best;
+            if (best < INF) {
+                return best * 100 - ties * 10;
+            }
+            // The player can seal every route; the shorter the plain way out,
+            // the better the chance the player misses it.
+            edgeDistance(g, wall, dist);
+            var plain = INF;
+            for (var f = 0; f < 6; f++) {
+                var z = nb[pos * 6 + f];
+                if (z >= 0 && !wall[z] && dist[z] < plain) plain = dist[z];
+            }
+            return plain < INF ? 100000 + plain * 100 : BIG / 2;
+        }
+
+        function catNode(pos, depth, alpha, beta, ply) {
+            var free = 0;
+            for (var d = 0; d < 6; d++) {
+                var m = nb[pos * 6 + d];
+                if (m >= 0 && !wall[m]) {
+                    if (g.edge[m]) return -BIG + ply;
+                    free++;
+                }
+            }
+            if (free === 0) return BIG - ply;
+            if (depth === 0) return leaf(pos);
+            // Most promising steps first, so the bounds tighten early.
+            kDistance(g, wall, 2, null, dist, count, queue);
+            var steps = [];
+            for (var e = 0; e < 6; e++) {
+                var y = nb[pos * 6 + e];
+                if (y >= 0 && !wall[y]) steps.push(y);
+            }
+            steps.sort(function (a, b) { return dist[a] - dist[b]; });
+            var best = Infinity;
+            for (var t = 0; t < steps.length; t++) {
+                var v = playerNode(steps[t], depth - 1, alpha, Math.min(beta, best), ply + 1);
+                if (v < best) {
+                    best = v;
+                    if (best <= alpha) break;
+                }
+            }
+            return best;
+        }
+
+        // Walls worth trying against a cat on pos. A cell's two-distance
+        // only depends on cells with smaller values, so a wall on a cell at
+        // least as far out as the cat's best step leaves the leaf score as it
+        // is (unless it is right next to the cat). Fills out with cells, and
+        // returns false when every other wall keeps the score at `base`.
+        function relevantWalls(pos, base, out) {
+            var x;
+            if (base === -BIG) {
+                for (var d = 0; d < 6; d++) {
+                    x = nb[pos * 6 + d];
+                    if (x >= 0 && !wall[x]) out.push(x);
+                }
+                return true;
+            }
+            var limit = leafBest;
+            for (x = 0; x < n; x++) {
+                if (wall[x] || x === pos) continue;
+                if (limit >= INF || dist[x] < limit || isNeighbour(pos, x)) out.push(x);
+            }
+            return limit < INF;
+        }
+
+        function isNeighbour(a, b) {
+            for (var d = 0; d < 6; d++) {
+                if (nb[a * 6 + d] === b) return true;
+            }
+            return false;
+        }
+
+        function playerNode(pos, depth, alpha, beta, ply) {
+            if (Date.now() > deadline) throw timeout;
+            var base = leaf(pos);
+            if (base >= BIG) return base;
+            var cells = [];
+            var others = relevantWalls(pos, base, cells);
+            var scores = [];
+            var x;
+            var t;
+            for (t = 0; t < cells.length; t++) {
+                x = cells[t];
+                wall[x] = 1;
+                var s = leaf(pos);
+                wall[x] = 0;
+                if (depth === 0 && s >= beta) return s;
+                scores.push(s);
+            }
+            if (depth === 0) {
+                var top = others ? base : -Infinity;
+                for (t = 0; t < scores.length; t++) {
+                    if (scores[t] > top) top = scores[t];
+                }
+                return top;
+            }
+            var order = cells.map(function (c, idx) { return idx; });
+            order.sort(function (a, b) { return scores[b] - scores[a]; });
+            var best = -Infinity;
+            for (t = 0; t < order.length && t < SEARCH_WIDTH; t++) {
+                x = cells[order[t]];
+                wall[x] = 1;
+                var v = catNode(pos, depth, Math.max(alpha, best), beta, ply + 1);
+                wall[x] = 0;
+                if (v > best) {
+                    best = v;
+                    if (best >= beta) return best;
+                }
+            }
+            // Any other wall changes nothing right now; searching on as if
+            // the player passed is a lower bound for all of them.
+            if (others) {
+                var pass = catNode(pos, depth, Math.max(alpha, best), beta, ply + 1);
+                if (pass > best) best = pass;
+            }
+            return best;
+        }
+
+        var dirs = [];
+        for (var d = 0; d < 6; d++) {
+            var m = nb[cat * 6 + d];
+            if (m < 0 || wall[m]) continue;
+            if (g.edge[m]) return d;
+            dirs.push(d);
+        }
+        kDistance(g, wall, 2, null, dist, count, queue);
+        dirs.sort(function (a, b) { return dist[nb[cat * 6 + a]] - dist[nb[cat * 6 + b]] || a - b; });
+        // Iterative deepening: keep the answer of the deepest search that
+        // finished in time, and try the previous best step first.
+        var answer = -1;
+        for (var rounds = 2; rounds <= maxRounds; rounds++) {
+            var bestD = -1;
+            var bestV = Infinity;
+            try {
+                for (var r = 0; r < dirs.length; r++) {
+                    var v = playerNode(nb[cat * 6 + dirs[r]], rounds - 1, -Infinity, bestV, 1);
+                    if (v < bestV) {
+                        bestV = v;
+                        bestD = dirs[r];
+                    }
+                }
+            } catch (e) {
+                if (e !== timeout) throw e;
+                break;
+            }
+            if (bestV >= BIG / 2) return -1;
+            answer = bestD;
+            // Escaping or losing by force does not change with more depth.
+            if (bestV < -BIG / 2) break;
+            dirs.splice(dirs.indexOf(bestD), 1);
+            dirs.unshift(bestD);
+        }
+        return answer;
+    }
+
+    /**
+     * One-wall lookahead. Used by smartSolver for the rule variants, when the
+     * deeper search runs out of time, and when the cat is trapped anyway.
+     *
      * 1. Step onto a free edge cell if there is one (that is an instant escape).
      * 2. Otherwise look one player move ahead: for each step the cat could take,
      *    try every wall the player could place next, and score the step by the
@@ -193,7 +431,7 @@
      *   edgeStay: the cat has to wait one turn on an edge cell before it can
      *             leave, and is caught there if the player walls it in
      */
-    function smartSolver(blocksIsWall, ci, cj, rules) {
+    function shallowSolver(blocksIsWall, ci, cj, rules) {
         var w = blocksIsWall.length;
         var h = blocksIsWall[0].length;
         var g = geometry(w, h);
@@ -431,6 +669,7 @@
         twoDistance: twoDistance,
         kDistance: kDistance,
         smartSolver: smartSolver,
+        shallowSolver: shallowSolver,
         classicSolver: classicSolver,
     };
 });
