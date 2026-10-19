@@ -21,6 +21,14 @@
         return {history: [], placed: 0, catTurn: 0, onEdge: false};
     }
 
+    // True when no free path leads from the cat to any edge cell.
+    function isEnclosed(scene) {
+        var CatAI = root.CatAI;
+        var g = CatAI.geometry(scene.w, scene.h);
+        var dist = CatAI.edgeDistance(g, CatAI.toFlat(scene.blocksData, g));
+        return dist[scene.cat.i * scene.h + scene.cat.j] >= CatAI.INF;
+    }
+
     function patchScene(proto) {
         if (proto.__variantsPatched) return;
         proto.__variantsPatched = true;
@@ -71,6 +79,15 @@
             block.isWall = true;
             if (this.cat.isCaught()) {
                 this.state = WIN;
+                return false;
+            }
+            // Shut in a pocket with no way to the edge counts as a win right
+            // away; otherwise the smart cat, which never gives up, makes the
+            // player fill the whole pocket.
+            if (isEnclosed(this)) {
+                this.cat.caught();
+                this.state = WIN;
+                this.setStatusText("猫被关住了，再也逃不出去，你赢了！");
                 return false;
             }
 
